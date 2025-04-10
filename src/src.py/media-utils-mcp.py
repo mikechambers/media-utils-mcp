@@ -26,9 +26,33 @@ import json
 from PIL import Image, ImageCms
 from PIL.ExifTags import TAGS, GPSTAGS
 import ffmpeg
+import sys
+import argparse
 
 # Create an MCP server
 mcp = FastMCP("MediaUtilsMCP")
+
+permitted_directories = None
+
+def init():
+    parser = argparse.ArgumentParser(description="Process multiple directory paths")
+    
+    # Add the --directories argument that can accept multiple string values
+    parser.add_argument(
+        '--permitted',
+        nargs='+',  # '+' means one or more arguments
+        type=str,   # Type of each argument
+        help='List of directory paths to process',
+        required=True  # Make this argument required
+    )
+    
+    # Parse the arguments
+    args = parser.parse_args()
+    
+    # Access the directories list
+    permitted_directories = args.directories
+init()
+
 
 @mcp.tool()
 def get_images_info(image_paths: list[str]) -> list[dict]:
@@ -141,16 +165,9 @@ def get_videos_info(video_paths: list[str]) -> list[dict]:
     return results
 
 
-def check_path_exists(path):
-    if os.path.exists(path):
-        return True
-    else:
-        raise FileNotFoundError(f"Path does not exist: {path}")
-
-
 def _get_video_info(video_path):
 
-    check_path_exists(video_path)
+    check_path(video_path)
 
     try:
         # Get information about the video file
@@ -192,7 +209,7 @@ def _get_video_info(video_path):
         raise
 
 def _get_image_info(image_path):
-    check_path_exists(image_path)
+    check_path(image_path)
     try:
         # Open the image file
         with Image.open(image_path) as img:
@@ -214,9 +231,39 @@ def _get_image_info(image_path):
         print(f"Error: {str(e)}")
         raise
 
-def is_safe_path(base_path, path_to_check):
+def check_path(path, base_paths):
+    check_path_exists(path)
 
-    base_path = os.path.abspath(os.path.normpath(base_path))
+    if not is_safe_path(base_paths, path):
+        raise ValueError("Path not allowed")
+    return True
+
+
+
+def check_path_exists(path):
+    if os.path.exists(path):
+        return True
+    else:
+        raise FileNotFoundError(f"Path does not exist: {path}")
+
+def is_safe_path(path_to_check):
+    base_paths = permitted_directories
+
     path_to_check = os.path.abspath(os.path.normpath(path_to_check))
     
-    return os.path.commonpath([base_path]) == os.path.commonpath([base_path, path_to_check])
+    # Check each base path
+    for base_path in base_paths:
+        # Normalize the current base path
+        base_path = os.path.abspath(os.path.normpath(base_path))
+        
+        try:
+            # Check if the common path equals the base path
+            common_path = os.path.commonpath([base_path, path_to_check])
+            if common_path == base_path:
+                return True
+        except ValueError:
+            # commonpath raises ValueError if paths are on different drives
+            continue
+    
+    # If we get here, the path wasn't in any of the base paths
+    return False
