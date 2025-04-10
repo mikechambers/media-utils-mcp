@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-utils-mcp"
+version = "0.1.0"
+description = "Media utilities package"
+requires-python = ">=3.10"
+dependencies = [
+    "ffmpeg-python>=0.2.0",
+    "mcp[cli]>=1.6.0",
+    "pillow>=11.1.0",
+]
