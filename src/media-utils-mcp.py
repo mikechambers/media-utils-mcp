@@ -50,7 +50,8 @@ def init():
     args = parser.parse_args()
     
     # Access the directories list
-    permitted_directories = args.directories
+    permitted_directories = args.permitted
+
 init()
 
 
