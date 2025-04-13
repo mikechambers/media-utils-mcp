@@ -32,6 +32,7 @@ import argparse
 # Create an MCP server
 mcp = FastMCP("MediaUtilsMCP")
 
+"""
 permitted_directories = None
 
 def init():
@@ -53,6 +54,7 @@ def init():
     permitted_directories = args.permitted
 
 init()
+"""
 
 
 @mcp.tool()
