@@ -36,6 +36,76 @@ const server = new McpServer({
   version: "1.0.0"
 });
 
+server.resource(
+  "getAllowedDirectories",
+  "mcp-utils://getAllowedDirectories",
+  async () => {
+    return {
+      contents: [
+        {
+          type: "text", 
+          text: JSON.stringify(permittedDirectories, null, 2),
+          uri: "data:text/plain;charset=utf-8"  // Adding the required URI property
+        }
+      ]
+    };
+  }
+);
+
+// Add unified API for both media types
+server.tool(
+  "getMediaInfo", 
+  {
+    mediaPaths: z.array(z.string()).describe("A list of media file paths (images or videos) to analyze")
+  },
+  async ({ mediaPaths }) => {
+    const results = [];
+    
+    for (const path of mediaPaths) {
+      try {
+        checkPath(path);
+        const mediaType = detectFileType(path);
+        
+        let info;
+        if (mediaType === 'IMAGE') {
+          info = await getImageInfo(path);
+          info.mediaType = 'IMAGE';
+        } else if (mediaType === 'VIDEO') {
+          info = await getVideoInfo(path);
+          info.mediaType = 'VIDEO';
+        } else {
+          // Try both methods if type detection is inconclusive
+          try {
+            info = await getImageInfo(path);
+            info.mediaType = 'IMAGE';
+          } catch (imageError) {
+            try {
+              info = await getVideoInfo(path);
+              info.mediaType = 'VIDEO';
+            } catch (videoError) {
+              throw new Error(`Unable to process file as image or video: ${imageError.message}, ${videoError.message}`);
+            }
+          }
+        }
+        
+        results.push(info);
+      } catch (e) {
+        results.push({
+          path,
+          error: String(e),
+          success: false,
+          mediaType: 'UNKNOWN'
+        });
+      }
+    }
+    
+    return {
+      content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+    };
+  }
+);
+
+
 // Function to check if a path is safe
 function isSafePath(pathToCheck) {
   const normalizedPath = path.normalize(path.resolve(pathToCheck));
@@ -175,110 +245,7 @@ function detectFileType(filePath) {
   return 'UNKNOWN';
 }
 
-// Add unified API for both media types
-server.tool(
-  "getMediaInfo", 
-  {
-    mediaPaths: z.array(z.string()).describe("A list of media file paths (images or videos) to analyze")
-  },
-  async ({ mediaPaths }) => {
-    const results = [];
-    
-    for (const path of mediaPaths) {
-      try {
-        checkPath(path);
-        const mediaType = detectFileType(path);
-        
-        let info;
-        if (mediaType === 'IMAGE') {
-          info = await getImageInfo(path);
-          info.mediaType = 'IMAGE';
-        } else if (mediaType === 'VIDEO') {
-          info = await getVideoInfo(path);
-          info.mediaType = 'VIDEO';
-        } else {
-          // Try both methods if type detection is inconclusive
-          try {
-            info = await getImageInfo(path);
-            info.mediaType = 'IMAGE';
-          } catch (imageError) {
-            try {
-              info = await getVideoInfo(path);
-              info.mediaType = 'VIDEO';
-            } catch (videoError) {
-              throw new Error(`Unable to process file as image or video: ${imageError.message}, ${videoError.message}`);
-            }
-          }
-        }
-        
-        results.push(info);
-      } catch (e) {
-        results.push({
-          path,
-          error: String(e),
-          success: false,
-          mediaType: 'UNKNOWN'
-        });
-      }
-    }
-    
-    return {
-      content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
-    };
-  }
-);
-/*
-server.tool(
-  "getImagesInfo", 
-  {
-    imagePaths: z.array(z.string()).describe("A list of image file paths to analyze")
-  },
-  async ({ imagePaths }) => {
-    const results = [];
-    
-    for (const path of imagePaths) {
-      try {
-        const info = await getImageInfo(path);
-        info.path = path;
-        results.push(info);
-      } catch (e) {
-        results.push({
-          path,
-          error: String(e),
-          success: false
-        });
-      }
-    }
-    
-    return {
-      content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
-    };
-  }
-);
-// Add get_videos_info tool
-server.tool("get_videos_info", async (args) => {
-  const video_paths = args.video_paths || [];
-  const results = [];
-  
-  for (const path of video_paths) {
-    try {
-      const info = await getVideoInfo(path);
-      info.path = path;
-      results.push(info);
-    } catch (e) {
-      results.push({
-        path,
-        error: String(e),
-        success: false
-      });
-    }
-  }
-  
-  return {
-    content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
-  };
-});
-*/
+
 
 // Start receiving messages on stdin and sending messages on stdout
 const transport = new StdioServerTransport();

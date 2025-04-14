@@ -65,7 +65,20 @@ Install the required dependencies:
 npm install @modelcontextprotocol/sdk sharp fluent-ffmpeg zod
 ```
 
-INFO ON HOW TO INSTALL INTO CLAUDE
+To install into Claude desktop, add the following to the __claude_desktop_config.json__ file.
+
+```
+    "media-utils": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "node",
+        "/Users/FOO/src/media-utils-mcp/src/media-utils-mcp.js",
+        "--permitted",
+        "/Users/FOO/Desktop/mcp"
+      ]
+    }
+```
 
 ## Usage
 
@@ -75,7 +88,7 @@ To run the server:
 node src/media-utils-mcp.js --permitted /path/to/dir1 /path/to/dir2
 ```
 
-The `--permitted` flag is used to specify which directories the MCP is allowed to access for security reasons.
+The `--permitted` flag is used to specify which directories roots the MCP is allowed to access for security reasons.
 
 ## Development
 
