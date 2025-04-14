@@ -1,34 +1,3 @@
-# media-utils-mcp.py
-
-MCP Server that provides information on Images and Video files.
-
-## Requirements
-
-### FFMPEG
-
-[Download FFMPEG](https://www.ffmpeg.org/download.html) and make sure that its in your system path.
-
-On MacOS you can run:
-
-```
-brew install ffmpeg
-```
-
-## Installation
-
-To run the dev server:
-
-```
-$cd src
-$uv run mcp dev media-utils-mcp.py
-```
-
-To install into Claude:
-
-```
-uv run mcp install --with Pillow --with ffmpeg-python --with mcp media-utils-mcp.py
-```
-
 # Media Utils MCP
 
 MCP Server that provides information on Images and Video files.
@@ -103,3 +72,11 @@ npx @modelcontextprotocol/inspector node src/media-utils-mcp.js --permitted /Use
 This MCP provides tools for analyzing media files:
 
 - **getMediaInfo**: Automatically detects whether files are images or videos and returns appropriate metadata
+
+- **getAllowedDirectories** : List the directories the MCP has access to (specified in config)
+
+## License
+
+Project released under a [MIT License](LICENSE.md).
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE.md)
