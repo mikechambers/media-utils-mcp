@@ -75,6 +75,8 @@ This MCP provides tools for analyzing media files:
 
 - **getAllowedDirectories** : List the directories the MCP has access to (specified in config)
 
+- **generateImagesFromVideos** : Generates an image from each video, which is from a frame most representative of the content in the video.
+
 ## License
 
 Project released under a [MIT License](LICENSE.md).
