@@ -299,7 +299,6 @@ async function detectMediaType(filePath) {
 }
 // Get image info helper function
 async function getImageInfo(imagePath) {
-  checkPath(imagePath);
   
   try {
     const metadata = await sharp(imagePath).metadata();
@@ -323,7 +322,6 @@ async function getImageInfo(imagePath) {
 
 // Get video info helper function
 function getVideoInfo(videoPath) {
-  checkPath(videoPath);
   
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
@@ -353,6 +351,22 @@ function getVideoInfo(videoPath) {
           }
         }
       }
+
+      // Look for creation date in common metadata locations
+      let creationDate = null;
+
+      // Check format tags first (most common location)
+      if (formatInfo.tags) {
+        creationDate = formatInfo.tags.creation_time || 
+                      formatInfo.tags.date || 
+                      formatInfo.tags.com_apple_quicktime_creationdate;
+      }
+      
+      // If not found in format tags, check video stream tags
+      if (!creationDate && videoStreams.length > 0 && videoStreams[0].tags) {
+        creationDate = videoStreams[0].tags.creation_time || 
+                      videoStreams[0].tags.date;
+      }
       
       resolve({
         format: formatInfo,
@@ -362,6 +376,7 @@ function getVideoInfo(videoPath) {
         size: parseInt(formatInfo.size || '0'),
         bit_rate: parseInt(formatInfo.bit_rate || '0'),
         framerate,
+        creation_date: creationDate,
         path: videoPath
       });
     });
