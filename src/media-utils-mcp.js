@@ -61,7 +61,27 @@ server.resource(
 
 // Updated getMediaInfo tool to use the new detectMediaType function
 server.tool(
-  "getMediaInfo", 
+  "getMediaInfo",
+  `Extracts detailed technical information from media files. This function analyzes one or more image or video files at the specified paths, automatically detecting their media type and returning comprehensive metadata.
+  For images, it provides details such as:
+  
+  * Dimensions (width and height in pixels)
+  * Resolution (DPI)
+  * Color depth and color space
+  * Format (JPEG, PNG, GIF, etc.)
+  * Compression type and quality
+  * EXIF data when available (camera model, lens, exposure settings, GPS coordinates)
+  * Creation and modification timestamps
+  
+  For videos, it extracts properties including:
+  
+  * Duration and total frames
+  * Resolution and aspect ratio
+  * Codec information
+  * Frame rate and bitrate
+  * Audio tracks information (channels, sample rate, codec)
+  * Container format
+  * Creation metadata and timestamps`,
   {
     mediaPaths: z.array(z.string()).describe("A list of media file paths (images or videos) to analyze")
   },
@@ -105,7 +125,12 @@ server.tool(
 
 // Add generateImageFromVideo tool
 server.tool(
-  "generateImagesFromVideos", 
+  "generateImagesFromVideos",
+  `Generates representative thumbnail images from video files.
+  
+  This function processes multiple video-to-image conversion tasks, automatically extracting a visually significant frame from each source video and saving it as a PNG image at the specified destination path. The tool intelligently analyzes video content to select a meaningful frame rather than simply capturing the first frame.
+  
+  All generated images are saved in PNG format regardless of the original extension specified in the output path.`,
   {
     items: z.array(
       z.object({
