@@ -1,6 +1,6 @@
 # Media Utils MCP
 
-MCP Server that provides information on Images and Video files.
+MCP Server that provides audio / video file processing and analysis.
 
 ## Requirements
 
