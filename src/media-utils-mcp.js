@@ -450,7 +450,300 @@ function generateSmartThumbnail(videoPath, imagePath) {
   });
 }
 
+/************** NEW ********************/
 
+// Add this tool definition after your existing tools in the MCP server
+server.tool(
+  "convertVideos",
+  `Converts video files to MP4 format with standardized encoding settings optimized for compatibility and quality.
+  
+  This function processes multiple video conversion tasks, re-encoding videos using configurable video and audio codecs. The conversion uses high-quality settings suitable for sharing and broad device compatibility.
+  
+  All output files are saved in MP4 format regardless of the original extension specified in the output path.`,
+  {
+    items: z.array(
+      z.object({
+        inputPath: z.string().describe("Path to the source video file to convert"),
+        outputPath: z.string().describe("Path where the converted MP4 video will be saved"),
+        videoSettings: z.object({
+          frameRate: z.number().optional().default(30).describe("Output frame rate (default: 30 fps)"),
+          videoBitrate: z.string().optional().default("8000k").describe("Video bitrate (default: 8000k)"),
+          bitrateMode: z.enum(["vbr", "cbr", "crf"]).optional().default("vbr").describe("Bitrate mode: 'vbr' for variable bitrate (default), 'cbr' for constant bitrate, 'crf' for constant rate factor (quality-based)"),
+          crf: z.number().optional().default(18).describe("Constant Rate Factor value (0-51, lower = higher quality, only used when bitrateMode is 'crf', default: 18)"),
+          preset: z.string().optional().default("medium").describe("Encoding preset: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow (default: medium)"),
+          audioBitrate: z.string().optional().default("128k").describe("Audio bitrate (default: 128k)"),
+          videoCodec: z.string().optional().describe("Video codec to use. Options: 'libx264' (H.264), 'libx265' (H.265/HEVC), 'libvpx-vp9' (VP9), 'av1' (AV1), 'copy' (copy without re-encoding), or 'auto' to keep same as input (default: 'auto')"),
+          audioCodec: z.string().optional().describe("Audio codec to use. Options: 'aac', 'mp3', 'libvorbis', 'libopus', 'copy' (copy without re-encoding), or 'auto' to keep same as input (default: 'aac')")
+        }).optional().default({})
+      })
+    ).describe("Array of video conversion tasks")
+  },
+  async ({ items }) => {
+    const results = [];
+    
+    for (const item of items) {
+      try {
+        // Check if input path is valid and in permitted directories
+        checkPath(item.inputPath);
+        
+        // Verify the input file is actually a video
+        const mediaType = await detectMediaType(item.inputPath);
+        if (!mediaType.isVideo) {
+          throw new Error(`File is not a video: ${mediaType.message || 'Invalid file type'}`);
+        }
+        
+        // Get input video info to determine original codecs
+        const inputInfo = await getVideoCodecInfo(item.inputPath);
+        
+        // Ensure the output has .mp4 extension
+        let outputPath = item.outputPath;
+        const currentExt = path.extname(outputPath).toLowerCase();
+        
+        if (currentExt !== '.mp4') {
+          // Remove any existing extension and add .mp4
+          outputPath = path.join(
+            path.dirname(outputPath),
+            `${path.basename(outputPath, path.extname(outputPath))}.mp4`
+          );
+        }
+        
+        // Create directory for output video if it doesn't exist
+        const outputDir = path.dirname(outputPath);
+        if (!fs.existsSync(outputDir)) {
+          fs.mkdirSync(outputDir, { recursive: true });
+        }
+        
+        // Check if the output path is in permitted directories
+        checkPath(outputDir);
+        
+        // Get default settings and merge with provided settings
+        const settings = {
+          frameRate: 30,
+          videoBitrate: "8000k",
+          bitrateMode: "vbr",
+          crf: 18,
+          preset: "medium",
+          audioBitrate: "128k",
+          videoCodec: "auto",
+          audioCodec: "aac",
+          ...item.videoSettings
+        };
+        
+        // Resolve 'auto' codec settings
+        const resolvedSettings = await resolveCodecSettings(settings, inputInfo);
+        
+        const conversionResult = await convertVideo(
+          item.inputPath,
+          outputPath,
+          resolvedSettings,
+          inputInfo
+        );
+        
+        results.push({
+          inputPath: item.inputPath,
+          outputPath: outputPath, // Return the potentially modified path
+          settings: resolvedSettings,
+          originalCodecs: {
+            video: inputInfo.videoCodec,
+            audio: inputInfo.audioCodec
+          },
+          success: true,
+          ...conversionResult
+        });
+      } catch (e) {
+        results.push({
+          inputPath: item.inputPath,
+          outputPath: item.outputPath,
+          error: String(e),
+          success: false
+        });
+      }
+    }
+    
+    return {
+      content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+    };
+  }
+);
+
+// Helper function to resolve 'auto' codec settings
+async function resolveCodecSettings(settings, inputInfo) {
+  const resolved = { ...settings };
+  
+  // Resolve video codec
+  if (settings.videoCodec === "auto") {
+    resolved.videoCodec = inputInfo.videoCodec || "libx264"; // fallback to H.264 if unknown
+  }
+  
+  // Resolve audio codec
+  if (settings.audioCodec === "auto") {
+    resolved.audioCodec = inputInfo.audioCodec || "aac"; // fallback to AAC if unknown
+  }
+  
+  return resolved;
+}
+
+// Enhanced getVideoCodecInfo function to extract codec information
+function getVideoCodecInfo(filePath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      
+      // Extract video and audio codec information
+      const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+      const audioStream = metadata.streams.find(stream => stream.codec_type === 'audio');
+      
+      const result = {
+        duration: metadata.format.duration,
+        size: metadata.format.size,
+        format: metadata.format,
+        bit_rate: metadata.format.bit_rate,
+        videoCodec: videoStream ? getFFmpegCodecName(videoStream.codec_name) : null,
+        audioCodec: audioStream ? getFFmpegCodecName(audioStream.codec_name) : null,
+        videoCodecOriginal: videoStream ? videoStream.codec_name : null,
+        audioCodecOriginal: audioStream ? audioStream.codec_name : null
+      };
+      
+      resolve(result);
+    });
+  });
+}
+
+// Helper function to map codec names to FFmpeg encoder names
+function getFFmpegCodecName(codecName) {
+  const codecMap = {
+    // Video codecs
+    'h264': 'libx264',
+    'hevc': 'libx265',
+    'h265': 'libx265',
+    'vp9': 'libvpx-vp9',
+    'vp8': 'libvpx',
+    'av1': 'libaom-av1',
+    'mpeg4': 'libxvid',
+    'mpeg2video': 'mpeg2video',
+    'xvid': 'libxvid',
+    'theora': 'libtheora',
+    
+    // Audio codecs
+    'aac': 'aac',
+    'mp3': 'libmp3lame',
+    'vorbis': 'libvorbis',
+    'opus': 'libopus',
+    'flac': 'flac',
+    'pcm_s16le': 'pcm_s16le',
+    'ac3': 'ac3',
+    'eac3': 'eac3'
+  };
+  
+  return codecMap[codecName.toLowerCase()] || codecName;
+}
+
+function convertVideo(inputPath, outputPath, settings, inputInfo) {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    
+    let ffmpegCommand = ffmpeg(inputPath);
+    
+    // Set video codec
+    if (settings.videoCodec === 'copy') {
+      ffmpegCommand = ffmpegCommand.videoCodec('copy');
+    } else {
+      ffmpegCommand = ffmpegCommand
+        .videoCodec(settings.videoCodec)
+        .fps(settings.frameRate);
+      
+      // Only apply preset for encoding codecs (not copy)
+      if (settings.videoCodec.includes('libx264') || settings.videoCodec.includes('libx265')) {
+        ffmpegCommand = ffmpegCommand.outputOptions([`-preset ${settings.preset}`]);
+      }
+      
+      // Apply bitrate mode settings (only when re-encoding)
+      switch (settings.bitrateMode) {
+        case 'cbr':
+          const bitrateValue = settings.videoBitrate;
+          const bufferSize = `${parseInt(bitrateValue) * 2}k`;
+          ffmpegCommand = ffmpegCommand
+            .videoBitrate(bitrateValue)
+            .outputOptions([
+              `-minrate ${bitrateValue}`,
+              `-maxrate ${bitrateValue}`,
+              `-bufsize ${bufferSize}`
+            ]);
+          break;
+          
+        case 'crf':
+          ffmpegCommand = ffmpegCommand.outputOptions([`-crf ${settings.crf}`]);
+          break;
+          
+        case 'vbr':
+        default:
+          ffmpegCommand = ffmpegCommand.videoBitrate(settings.videoBitrate);
+          break;
+      }
+    }
+    
+    // Set audio codec
+    if (settings.audioCodec === 'copy') {
+      ffmpegCommand = ffmpegCommand.audioCodec('copy');
+    } else {
+      ffmpegCommand = ffmpegCommand
+        .audioCodec(settings.audioCodec)
+        .audioBitrate(settings.audioBitrate);
+    }
+    
+    ffmpegCommand
+      .output(outputPath)
+      .on('start', (commandLine) => {
+        //console.log(`Starting conversion: ${commandLine}`);
+      })
+      .on('progress', (progress) => {
+        if (progress.percent) {
+          //console.log(`Processing: ${Math.round(progress.percent)}% done`);
+        }
+      })
+      .on('error', (err) => {
+        console.error(`Error converting video: ${err.message}`);
+        reject(err);
+      })
+      .on('end', () => {
+        const endTime = Date.now();
+        const duration = (endTime - startTime) / 1000;
+        
+        // Get info about the converted video
+        getVideoCodecInfo(outputPath)
+          .then((videoInfo) => {
+            resolve({
+              duration: videoInfo.duration,
+              size: videoInfo.size,
+              format: videoInfo.format,
+              conversionTime: duration,
+              bitRate: videoInfo.bit_rate,
+              outputCodecs: {
+                video: videoInfo.videoCodec,
+                audio: videoInfo.audioCodec
+              }
+            });
+          })
+          .catch(err => {
+            // If we can't get metadata, at least confirm it was created
+            if (fs.existsSync(outputPath)) {
+              const stats = fs.statSync(outputPath);
+              resolve({
+                size: stats.size,
+                conversionTime: duration,
+                note: "Video converted but detailed metadata could not be read"
+              });
+            } else {
+              reject(new Error("Failed to convert video"));
+            }
+          });
+      })
+      .run();
+  });
+}
 
 // Start receiving messages on stdin and sending messages on stdout
 const transport = new StdioServerTransport();
