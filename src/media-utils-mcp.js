@@ -702,7 +702,7 @@ function convertVideo(inputPath, outputPath, settings, inputInfo) {
         }
       })
       .on('error', (err) => {
-        console.error(`Error converting video: ${err.message}`);
+        //console.error(`Error converting video: ${err.message}`);
         reject(err);
       })
       .on('end', () => {
