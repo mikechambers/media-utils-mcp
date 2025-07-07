@@ -742,6 +742,273 @@ function convertVideo(inputPath, outputPath, settings, inputInfo) {
   });
 }
 
+
+
+
+/************* NEW */
+
+
+// Add this tool to your MCP server
+
+server.tool(
+  "splitAudioChannels",
+  `Splits stereo audio from media files into separate left and right channel WAV files.
+  
+  This function extracts the left and right audio channels from video or audio files and saves them as separate mono WAV files. This is useful for analyzing stereo recordings, isolating specific audio tracks, or preparing audio for specialized processing.
+  
+  All output files are saved in WAV format regardless of the original extension specified in the output paths.`,
+  {
+    items: z.array(
+      z.object({
+        inputPath: z.string().describe("Path to the source media file (video or audio) to split"),
+        leftChannelPath: z.string().describe("Path where the left channel WAV file will be saved"),
+        rightChannelPath: z.string().describe("Path where the right channel WAV file will be saved"),
+        audioSettings: z.object({
+          sampleRate: z.number().optional().default(44100).describe("Output sample rate in Hz (default: 44100)"),
+          bitDepth: z.number().optional().default(16).describe("Output bit depth: 16, 24, or 32 (default: 16)"),
+          normalize: z.boolean().optional().default(false).describe("Whether to normalize the audio levels (default: false)")
+        }).optional().default({})
+      })
+    ).describe("Array of audio channel splitting tasks")
+  },
+  async ({ items }) => {
+    const results = [];
+    
+    for (const item of items) {
+      try {
+        // Check if input path is valid and in permitted directories
+        checkPath(item.inputPath);
+        
+        // Verify the input file has audio
+        const mediaInfo = await getAudioInfo(item.inputPath);
+        if (!mediaInfo.hasAudio) {
+          throw new Error(`File does not contain audio: ${item.inputPath}`);
+        }
+        
+        if (mediaInfo.channels < 2) {
+          throw new Error(`File is not stereo - only has ${mediaInfo.channels} channel(s)`);
+        }
+        
+        // Ensure the output paths have .wav extensions
+        let leftPath = ensureWavExtension(item.leftChannelPath);
+        let rightPath = ensureWavExtension(item.rightChannelPath);
+        
+        // Create directories for output files if they don't exist
+        const leftDir = path.dirname(leftPath);
+        const rightDir = path.dirname(rightPath);
+        
+        if (!fs.existsSync(leftDir)) {
+          fs.mkdirSync(leftDir, { recursive: true });
+        }
+        if (!fs.existsSync(rightDir)) {
+          fs.mkdirSync(rightDir, { recursive: true });
+        }
+        
+        // Check if the output paths are in permitted directories
+        checkPath(leftDir);
+        checkPath(rightDir);
+        
+        // Get default settings and merge with provided settings
+        const settings = {
+          sampleRate: 44100,
+          bitDepth: 16,
+          normalize: false,
+          ...item.audioSettings
+        };
+        
+        const splitResult = await splitStereoChannels(
+          item.inputPath,
+          leftPath,
+          rightPath,
+          settings,
+          mediaInfo
+        );
+        
+        results.push({
+          inputPath: item.inputPath,
+          leftChannelPath: leftPath,
+          rightChannelPath: rightPath,
+          settings: settings,
+          originalAudioInfo: {
+            channels: mediaInfo.channels,
+            sampleRate: mediaInfo.sampleRate,
+            duration: mediaInfo.duration,
+            codec: mediaInfo.codec
+          },
+          success: true,
+          ...splitResult
+        });
+        
+      } catch (e) {
+        results.push({
+          inputPath: item.inputPath,
+          leftChannelPath: item.leftChannelPath,
+          rightChannelPath: item.rightChannelPath,
+          error: String(e),
+          success: false
+        });
+      }
+    }
+    
+    return {
+      content: [{ type: "text", text: JSON.stringify(results, null, 2) }]
+    };
+  }
+);
+
+// Helper function to ensure .wav extension
+function ensureWavExtension(filePath) {
+  const currentExt = path.extname(filePath).toLowerCase();
+  
+  if (currentExt !== '.wav') {
+    return path.join(
+      path.dirname(filePath),
+      `${path.basename(filePath, path.extname(filePath))}.wav`
+    );
+  }
+  
+  return filePath;
+}
+
+// Helper function to get audio information from a file
+function getAudioInfo(filePath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      
+      // Find the first audio stream
+      const audioStream = metadata.streams.find(stream => stream.codec_type === 'audio');
+      
+      if (!audioStream) {
+        resolve({
+          hasAudio: false,
+          channels: 0,
+          duration: metadata.format.duration || 0
+        });
+        return;
+      }
+      
+      resolve({
+        hasAudio: true,
+        channels: audioStream.channels || 0,
+        sampleRate: audioStream.sample_rate || 0,
+        duration: metadata.format.duration || 0,
+        codec: audioStream.codec_name,
+        bitRate: audioStream.bit_rate,
+        format: metadata.format
+      });
+    });
+  });
+}
+
+// Main function to split stereo channels
+function splitStereoChannels(inputPath, leftPath, rightPath, settings, mediaInfo) {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    let completedFiles = 0;
+    const totalFiles = 2;
+    const results = {
+      leftChannel: null,
+      rightChannel: null
+    };
+    
+    // Build audio format options based on settings
+    const audioFormatOptions = buildAudioFormatOptions(settings);
+    
+    // Function to handle completion of each channel
+    const handleChannelComplete = (channel, fileInfo) => {
+      results[channel] = fileInfo;
+      completedFiles++;
+      
+      if (completedFiles === totalFiles) {
+        const endTime = Date.now();
+        const duration = (endTime - startTime) / 1000;
+        
+        resolve({
+          processingTime: duration,
+          leftChannel: results.leftChannel,
+          rightChannel: results.rightChannel
+        });
+      }
+    };
+    
+    // Extract left channel (channel 0)
+    ffmpeg(inputPath)
+      .audioFilters('pan=mono|c0=0.5*c0+0.5*c1') // Mix left channel to mono
+      .audioChannels(1)
+      .audioFrequency(settings.sampleRate)
+      .outputOptions(audioFormatOptions)
+      .output(leftPath)
+      .on('error', (err) => {
+        reject(new Error(`Error extracting left channel: ${err.message}`));
+      })
+      .on('end', () => {
+        // Get file info
+        const stats = fs.statSync(leftPath);
+        handleChannelComplete('leftChannel', {
+          path: leftPath,
+          size: stats.size,
+          channel: 'left'
+        });
+      })
+      .run();
+    
+    // Extract right channel (channel 1)  
+    ffmpeg(inputPath)
+      .audioFilters('pan=mono|c0=0.5*c2+0.5*c3') // Mix right channel to mono
+      .audioChannels(1)
+      .audioFrequency(settings.sampleRate)
+      .outputOptions(audioFormatOptions)
+      .output(rightPath)
+      .on('error', (err) => {
+        reject(new Error(`Error extracting right channel: ${err.message}`));
+      })
+      .on('end', () => {
+        // Get file info
+        const stats = fs.statSync(rightPath);
+        handleChannelComplete('rightChannel', {
+          path: rightPath,
+          size: stats.size,
+          channel: 'right'
+        });
+      })
+      .run();
+  });
+}
+
+// Helper function to build audio format options
+function buildAudioFormatOptions(settings) {
+  const options = [];
+  
+  // Set bit depth
+  switch (settings.bitDepth) {
+    case 16:
+      options.push('-acodec pcm_s16le');
+      break;
+    case 24:
+      options.push('-acodec pcm_s24le');
+      break;
+    case 32:
+      options.push('-acodec pcm_s32le');
+      break;
+    default:
+      options.push('-acodec pcm_s16le'); // Default to 16-bit
+  }
+  
+  // Add normalization if requested
+  if (settings.normalize) {
+    options.push('-af loudnorm');
+  }
+  
+  return options;
+}
+
+
+
+
 // Start receiving messages on stdin and sending messages on stdout
 const transport = new StdioServerTransport();
 server.connect(transport).catch(console.error);
