@@ -450,9 +450,6 @@ function generateSmartThumbnail(videoPath, imagePath) {
   });
 }
 
-/************** NEW ********************/
-
-// Add this tool definition after your existing tools in the MCP server
 server.tool(
   "convertVideos",
   `Converts video files to MP4 format with standardized encoding settings optimized for compatibility and quality.
