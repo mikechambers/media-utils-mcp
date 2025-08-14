@@ -1,3 +1,5 @@
+[![MSeeP.ai Security Assessment Badge](https://mseep.net/pr/mikechambers-media-utils-mcp-badge.png)](https://mseep.ai/app/mikechambers-media-utils-mcp)
+
 # Media Utils MCP
 
 MCP Server that provides audio / video file processing and analysis.
